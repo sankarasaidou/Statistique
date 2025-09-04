@@ -1,0 +1,1621 @@
+---
+title: "Projet de ODD (définir le profil de pauvreté)"
+author: "Boniface SAWADOGO"
+format: docx
+editor: visual
+---
+
+# Creation du fichier individu et ménage.
+
+```{r}
+library(haven)
+library(dplyr)
+library(labelled)
+library(questionr)
+
+# Id ménage hhid=zd*100+ménage
+# ID individu idind= hhid*100+numind
+
+# ================================
+
+f_individu1<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p1_individu_27022015.dta")
+f_individu1<- f_individu1|> 
+  select(zd,menage,region,province,milieu,numind,B2,B3A,B3B,B4,B5,B7,B16)|> 
+  mutate_if(is.labelled, as_factor)
+
+
+f_individu2<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p2_individu_27022015.dta")
+f_individu2<- f_individu2|> 
+  select(zd,menage,region,milieu,numind,B1B,B2,B3A,B3B,B4,B5,B7,B16)|>
+  mutate_if(is.labelled, as_factor)
+
+# Nous allons garder les individus nouvellement arrivé dans le ménage, les nouveaux nés(seront ajouter à la base individu) et les décès (seront supprimer de la base individu)
+
+# summary(f_individu2$B1B)/ aucun deces, et personne n'a quitter de ménage
+# Il y a un chef de ménage avec pour age 0
+
+##
+f_individu2<- f_individu2|>
+  filter(B1B !="Toujours dans le ménage")#|> select(- B1B)  
+
+
+f_individu3<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p3_individu_27022015.dta")
+f_individu3<- f_individu3|> 
+  select(zd,menage,region,milieu,numind,B1B,sexe3,B3A,B3B,age3,lien_cm3,B7,B16)|>
+  rename(B2=sexe3,B4=age3,B5=lien_cm3)|> 
+  mutate_if(is.labelled, as_factor)
+
+f_individu3<- f_individu3|>
+  filter(B1B !="Toujours dans le ménage")#|> select(- B1B)
+
+
+f_individu4<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p4_individu_27022015.dta")
+f_individu4<- f_individu4|>
+  select(zd,menage,region,milieu,numind,B1B,B2,B3A,B3B,B4B,B5,B7,B16)|> 
+  rename(B4=B4B)|> 
+  mutate_if(is.labelled, as_factor)
+
+f_individu4<- f_individu4|>
+  filter(B1B !="Toujours dans le ménage")#|> select(- B1B)
+
+## Ajout des nouveaux nés et les nouveaux arrivés.
+
+f_nouveau2<- f_individu2|>
+  filter(B1B ==c("Nouveau né","Nouvellement arrivé"))|>
+  select(- B1B)
+
+f_nouveau3<- f_individu3|>
+  filter(B1B %in% c("Nouveau né","Nouvellement arrivé"))|>
+  select(- B1B)
+
+f_nouveau4<- f_individu4|>
+  filter(B1B %in% c("Nouveau né","Nouvellement arrivé"))|>
+  select(- B1B)
+
+f_individu0<-bind_rows(f_individu1,f_nouveau2,f_nouveau3,f_nouveau4)
+
+# Creer un variables B1B pour pouvoir connaitre la situation de chaque individu au cours de l'EMC 2014.
+
+f_individu0<-f_individu0|>
+  mutate(B1B = factor("En vie"))|>
+  select(zd,menage,region,province,milieu,numind,B1B, everything())
+
+# Tenir compte des autres modalité lors de notre passage (B1B)
+
+f_individu3a <- f_individu3|>
+  filter(
+    !B1B %in% c("Toujours dans le ménage", "Nouveau né", "Nouvellement arrivé"))
+
+f_individu4a <- f_individu4|>
+  filter(
+    !B1B %in% c("Toujours dans le ménage", "Nouveau né", "Nouvellement arrivé"))
+
+f_individu<-bind_rows(f_individu0,f_individu3a,f_individu4a)
+
+# double<-f_individu |>
+#   group_by(zd, menage, numind)|>
+#   filter(n() > 1)|>
+#   ungroup()
+
+f_individu<-f_individu |>
+  group_by(zd, menage,region,province, numind)|>
+  filter(!any(B1B == "Décédé"))|>
+  ungroup()
+
+
+# Dans cette partie il sagit d'identifier les individus yant vecu et quitter et/ou renenir dans le menage.Et proceder à garder ceux qui ont vecu plus de 6 moins dan le ménage avant de quitter ou apres leur arriver.
+
+f_individu <- f_individu|>
+  group_by(zd, menage,region,province, numind)|>
+  # S'il y a une ligne avec "En vie" dans les doublons, on garde uniquement celle-là
+  filter(if (any(B1B == "En vie")) B1B == "En vie" else TRUE)|>
+  ungroup()
+
+# Supprimer les ménages doublons où l'on n'arrive pas à identifier leur provinces car il sont en proportion faibles (36 observations)
+
+f_individu <- f_individu|>
+  group_by(zd, menage,region,province, numind)|>
+  filter(n() == 1)|>
+  droplevels()|>
+  ungroup()
+
+# t <- subset(f_individu, B3B == "3")
+
+# Notre base ne doit contenir que les individu ayant vécu 6 ou qui compte vivre 6 moi auplus
+
+f_individu <- f_individu|>
+  filter(B3A=="6 mois ou plus" | B3A=="Plus de 6 mois")
+
+
+# double<-f_individu|>
+#   group_by(zd, menage,region, numind)|>
+#   filter(n() > 1)|>
+#   ungroup()
+
+# ================================
+# Ma base individu
+
+data_individu<-f_individu|>
+  set_variable_labels(
+    B2    = "Sexe de l'individu",
+    B3A   = "Nombre de mois vecu au cours des Au cours des 12 derniers mois",
+    B3B = " Si moins de 6 mois, nombre de moins que nom compte resté",
+    B4="Age de l'individu",B5="Lien de parenté",B7="Nationalité",
+    B16= "handicape principal")|>
+  mutate(hhid=zd*1000+menage, idind= hhid*100+numind)|>
+  select(-B1B,-B3A,-B3B)|>
+  select(hhid,idind, everything())
+```
+
+## Caracteristiques de l'education.
+
+```{r}
+
+f_education<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p4_education_27022015.dta")
+f_education<- f_education|> 
+  select(zd,menage,region,milieu,numind,ET01,ET02,ET07,ET10,ET12,ET23,ET26,ET30,ET17,ET18,ET19,ET20,ET21,ET22)|>
+  mutate_if(is.labelled, as_factor)
+
+# Creation de la variable alphabétisation
+
+
+f_education <- f_education|>
+  mutate(Alphatisation = case_when((ET01 == "Oui" & ET02 == "Non")  ~ "Oui",
+                           TRUE ~ "Non"))
+
+f_education <- f_education|>
+  mutate(scol = case_when((ET10 == "Oui")  ~ "Oui",
+                           TRUE ~ "Non"))
+
+f_education <- f_education|>
+  mutate(educ_scol = ET12)# niveau d'education actuelle
+
+f_education <- f_education |>
+  mutate(educ_hi = case_when(ET23 != "0" & !is.na(ET23) ~ ET23,
+                             scol == "Non" & is.na(ET23) ~ "Aucun"))
+
+f_education <- f_education |>
+  mutate(educ_hi = if_else(is.na(educ_hi) & scol == "Oui", educ_scol, educ_hi))
+
+
+# possession de telephone et internet
+
+f_education <- f_education |>
+  mutate(telpor = case_when((ET26 == "Oui")  ~ "Oui",
+                           TRUE ~ "Non"),
+         internet = case_when((ET30 == "Oui")  ~ "Oui",
+                           TRUE ~ "Non"))
+
+
+
+f_education <- f_education |>
+  select(zd,menage,region,milieu,numind,Alphatisation,scol,educ_scol,educ_hi,telpor, internet,ET17,ET18,ET19,ET20,ET21,ET22)|>
+  set_variable_labels(
+    Alphatisation    = "Alphatisé ou pas",
+    scol   = "Frequenté 2013/14",
+    educ_scol = " niveau d'education actuelle",
+    educ_hi ="ANiv. educ. atteint",telpor="Individu a telephone portable",
+    internet ="Individu a acces internet")|>
+  mutate(hhid=zd*1000+menage, idind= hhid*100+numind)|>
+  select(hhid,idind, everything())
+```
+
+## Caracteristiques sante.
+
+```{r}
+f_sante<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p3_sante_27022015.dta")
+f_sante<- f_sante|> 
+  select(zd,menage,region,milieu,numind,S01B,S02,S03,S04,S05,S21,S23,S33,S12,S15,S18,S22,S26,S30)|>
+  mutate_if(is.labelled, as_factor) # B16 à prendre en compte dans le fichier individu
+
+f_sante <- f_sante|>
+  mutate(mal30j = case_when((S01B == "Oui" )  ~ "Oui",
+                           TRUE ~ "Non"),
+         con30j= case_when((S05=="Oui" & mal30j=="Oui")  ~ "Oui",
+                           TRUE ~ "Non"),
+         aff30j= S02,
+         arrmal = case_when((S03 == "Oui" )  ~ "Oui",
+                           TRUE ~ "Non"),
+         durarr= S04, moustiq =S33,couvmal=S23,hos12m=S21)
+
+
+
+f_sante <- f_sante |>
+  select(zd,menage,region,milieu,numind,mal30j,con30j,aff30j,arrmal,durarr,moustiq,couvmal,hos12m,S12,S15,S18,S22,S26,S30)|>
+  set_variable_labels(
+    mal30j    = "Prob. sante 30 dern. jours",
+    con30j   = "Consulte 30 dern. jours",
+    aff30j = " probleme sante",
+    arrmal="Arret activite pour maladie",durarr="Duree arret activite pour maladie",
+    moustiq ="Dormi moustiquire nuit dern.",couvmal="Indivu couverture maladie",
+    hos12m="Hospitalisation 12 der. mois")|>
+  mutate(hhid=zd*1000+menage, idind= hhid*100+numind)|>
+  select(hhid,idind, everything())
+```
+
+## Autres caracteristiques.
+
+```{r}
+f_epargne<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p4_epargnecredit_27022015.dta")
+f_epargne<- f_epargne|> 
+  select(zd,menage,region,milieu,numind,EC02A,EC02B,EC02C)|>
+  mutate_if(is.labelled, as_factor)|>
+  mutate(bank=case_when((EC02A == "Oui" |EC02B == "Oui"|EC02C == "Oui")  ~ "Oui",
+                           TRUE ~ "Non"))|>
+  set_variable_labels(bank    = "compte banque ou autre")|>
+   select(zd,menage,region,milieu,numind,bank)|>
+  mutate(hhid=zd*1000+menage, idind= hhid*100+numind)|>
+  select(hhid,idind, everything())
+```
+
+# Base individu.
+
+```{r}
+individu<-data_individu|>
+  left_join(f_education, by = c("hhid", "idind","zd","menage","numind"))|>
+  left_join(f_sante, by = c("hhid", "idind","zd","menage","numind"))|>
+  left_join(f_epargne, by = c("hhid", "idind","zd","menage","numind"))
+
+individu<-individu|>
+  select(-c(region.y,region.x.x,region.y.y,milieu.y,milieu.x.x,milieu.y.y,ET17,ET18,ET19,ET20,ET21,ET22,S12,S15,S18,S22,S26,S30))|>
+  rename(region=region.x,milieu=milieu.x)
+```
+
+## Superficies agricoles.
+
+```{r}
+f_superficie<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_agri_caracteristiques_parcelles.dta")
+f_superficie<-f_superficie|>
+  mutate_if(is.labelled, as_factor)
+
+f_superficie<-f_superficie|>
+  filter(!is.na(V00) & !is.na(V02) & !is.na(V03))
+
+f_superficie<-f_superficie|>
+  select(zd,menage,V06)|>
+  mutate(hhid=zd*1000+menage)|>
+  select(hhid, everything())
+
+f_superficie<-f_superficie|>
+  group_by(hhid)|>
+  summarise(Superficie = sum(V06))
+```
+
+## Caractéristiques de logement.
+
+```{r}
+f_logement<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p1_logement_27022015.dta")
+f_logement<-f_logement|>
+  select(zd,menage,region,province,
+         milieu,L15,L05,L06,L07,L09,L08,L10,L12,L11,L13, L16)|>
+  mutate_if(is.labelled, as_factor)
+
+f_logement$L15 <- droplevels(f_logement$L15)
+
+f_logement <- f_logement|>
+  mutate(logm = case_when(
+    L15 %in% "Propriétaire  avec titre" ~ "Propriétaire avec titre",
+    L15 %in% "Propriétaire sans titre" ~ "Propriétaire sans titre",
+    L15 %in% "Locataire" ~ "Locataire",
+    L15 %in% c("Loger par l?employeur","Logé gratuitement","Nomade ou logement temporaire","Autre à préciser") ~ "Autres",
+    TRUE ~ NA))
+
+f_logement$L05 <- droplevels(f_logement$L05)
+f_logement$L06 <- droplevels(f_logement$L06)
+f_logement$L07 <- droplevels(f_logement$L07)
+f_logement$L08 <- droplevels(f_logement$L08)
+f_logement$L12 <- droplevels(f_logement$L12)
+f_logement$L11 <- droplevels(f_logement$L11)
+f_logement$L13 <- droplevels(f_logement$L13)
+f_logement <- f_logement|>
+  mutate(mur = case_when(L05 != c("Paille","Autre à préciser")~ "Oui",
+                         TRUE ~ "Non"),
+         toit = case_when( L06 %in% c("Tôle","Dale","Tuile")~ "Oui",
+                         TRUE ~ "Non"),
+         sol =  case_when(L07 %in% c("Chape de ciment","Carreau")~ "Oui",
+                         TRUE ~ "Non"),
+         eauboi = L09,
+         elec_ur = case_when(L08 %in% "Electricité réseau"~ "Oui",
+                         TRUE ~ "Non"),
+         elec_ua = case_when(L08 %in% c("Energie solaire","Groupe électrogène")~ "Oui",TRUE ~ "Non"),
+         ordure = case_when(L10 %in% c("Dépotoir public","Enlèvement/Bac")~ "Oui",TRUE ~ "Non"),
+         toilette = case_when(L12 %in% c("Latrine traditionnelle sans dalle","Dans la nature")~ "Oui",
+                          L12 %in%  "Valeur manquante"  ~ NA ,TRUE ~ "Non"),
+         eva_eau = case_when(L11 %in% c("Puisard","Egout")~ "Oui",
+                         TRUE ~ "Non"),
+         eva_toi = case_when(L13 %in% c("Egout","Fosse septique","Fosse étanche")~ "Oui",TRUE ~ "Non"))
+
+f_logement<- f_logement|> 
+  rename(Loyer = L16)|> 
+  select(zd,menage,region,province,milieu,logm,mur,toit,sol,eauboi,
+         elec_ur,elec_ua,ordure,toilette,eva_eau,eva_toi,Loyer)|>
+  set_variable_labels(
+    logm    = "Occupation logement", mur ="Mur en materiaux definitifs",
+    toit = "toit en materiaux definitifs",sol = "Sol en materiaux definitifs",
+    eauboi = "eau potable",elec_ur = "Utilise elec. reseau",
+    elec_ua= "Utilise elec. solaire/groupe",ordure="Déchets évacués sainement",
+    toilette="Toilettes saines",eva_eau="Eaux usées évacuées sainement",
+    eva_toi="Excréments évacués sainement")|>
+  mutate(hhid=zd*1000+menage)|>
+  select(hhid, everything())
+```
+
+# Base ménage.
+
+```{r}
+menage<-f_logement|>
+  # left_join(f_choc, by = "hhid")|>
+  left_join(f_superficie, by = "hhid")
+```
+
+# Partie 1: Dépense de consommation alimentaire.
+
+```{r}
+
+# ==================== Passage 1
+
+conso_ali1<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p1_conso7jours_16032015.dta")
+conso_ali1<-conso_ali1|>
+  select(hhid,zd,menage,region,milieu,hhsize1,achat,qachat,uachat,autocons,qautocons,uautocons,cadeau,ucadeau,qcadeau,product,prodini)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_ali1 <- conso_ali1|>
+  rowwise()|>
+  mutate(dep_ali = sum(c(achat, autocons, cadeau), na.rm = TRUE))|>
+  ungroup()
+
+conso_ali1 <- conso_ali1|>
+  rowwise()|>
+  mutate(dep_ali_t = sum(c(achat, autocons, cadeau)*(365/4)/7, na.rm = TRUE))|>
+  ungroup()
+
+conso_ali1 <- conso_ali1|>
+  rename(hhsize=hhsize1)
+
+# ==================== Passage 2
+
+conso_ali2<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p2_conso7jours_16032015.dta")
+conso_ali2<-conso_ali2|>
+  select(hhid,zd,menage,region,milieu,hhsize2,achat,autocons,cadeau,product,prodini)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_ali2 <- conso_ali2|>
+  rowwise()|>
+  mutate(dep_ali = sum(c(achat, autocons, cadeau), na.rm = TRUE))|>
+  ungroup()
+
+# L'on trimestrialise les depenses.
+
+conso_ali2 <- conso_ali2|>
+  rowwise()|>
+  mutate(dep_ali_t = sum(c(achat, autocons, cadeau)*(365/4)/7, na.rm = TRUE))|>
+  ungroup()
+
+conso_ali2 <- conso_ali2|>
+  rename(hhsize=hhsize2)
+
+# ==================== Passage 3
+
+conso_ali3<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p3_conso7jours_16032015.dta")
+conso_ali3<-conso_ali3|>
+  select(hhid,zd,menage,region,milieu,hhsize3,achat,autocons,cadeau,product,prodini)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_ali3 <- conso_ali3|>
+  rowwise()|>
+  mutate(dep_ali = sum(c(achat, autocons, cadeau), na.rm = TRUE))|>
+  ungroup()
+
+conso_ali3 <- conso_ali3|>
+  rowwise()|>
+  mutate(dep_ali_t = sum(c(achat, autocons, cadeau)*(365/4)/7, na.rm = TRUE))|>
+  ungroup()
+
+conso_ali3 <- conso_ali3|>
+  rename(hhsize=hhsize3)
+
+# ==================== Passage 4
+
+conso_ali4<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p4_conso7jours_16032015.dta")
+conso_ali4<-conso_ali4|>
+  select(hhid,zd,menage,region,milieu,hhsize4,achat,autocons,cadeau,product,prodini)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_ali4 <- conso_ali4|>
+  rowwise()|>
+  mutate(dep_ali = sum(c(achat, autocons, cadeau), na.rm = TRUE))|>
+  ungroup()
+
+conso_ali4 <- conso_ali4|>
+  rowwise()|>
+  mutate(dep_ali_t = sum(c(achat, autocons, cadeau)*(365/4)/7, na.rm = TRUE))|>
+  ungroup()
+
+conso_ali4 <- conso_ali4|>
+  rename(hhsize=hhsize4)
+
+# ==================== Dépense alimentaire annualisé.
+
+conso_ali <- conso_ali1|>
+  left_join(conso_ali2, by = c("hhid","zd","menage","region","milieu","prodini"))|>
+  left_join(conso_ali3, by = c("hhid","zd","menage","region","milieu","prodini"))|>
+  left_join(conso_ali4, by = c("hhid","zd","menage","region","milieu","prodini"))
+
+# Annualisation
+
+conso_ali <- conso_ali|>
+  rowwise()|>
+  mutate(dep_ali_a = sum(c(dep_ali_t.x, dep_ali_t.y, dep_ali_t.x.x,dep_ali_t.y.y), na.rm = TRUE))|>
+  ungroup()
+
+
+conso_ali <- conso_ali|>
+  rename(product=product.x)
+
+# Enléver les modalités vides
+
+conso_ali <- droplevels(conso_ali)
+
+# ================================
+```
+
+# Partie 2: Dépense de consommation non_alimentaire.
+
+```{r}
+# ==================== Passage 1
+
+conso_non_ali1<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p1_conso3mois_16032015.dta")
+
+
+conso_non_ali1<-conso_non_ali1|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize1,achat,cadeau,product)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_non_ali1<-conso_non_ali1|>
+  mutate(region = as.factor(toupper(as.character(region)))) # conversion en majuscule
+
+conso_non_ali1 <- conso_non_ali1|>
+  rowwise()|>
+  mutate(dep_non_ali = sum(c(achat, cadeau), na.rm = TRUE))|>
+  ungroup()
+
+conso_non_ali1 <- conso_non_ali1|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize1,dep_non_ali,product)|>
+  rename(hhsize=hhsize1)
+
+# ==================== Passage 2
+
+# Au cours des 3 dernier mois donc déja trimestrialisé.
+
+conso_non_ali32<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p2_conso3mois_16032015.dta")
+
+conso_non_ali32<-conso_non_ali32|>
+  select(hhid,zd,menage,region,province,milieu,strate,hhsize2,achat,cadeau,product)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_non_ali32<-conso_non_ali32|>
+  mutate(region = as.factor(toupper(as.character(region))),
+         milieu = as.factor(toupper(as.character(milieu)))) # conversion en majuscule
+
+conso_non_ali32 <- conso_non_ali32|>
+  rowwise()|>
+  mutate(dep_non_ali = sum(c(achat, cadeau), na.rm = TRUE))|>
+  ungroup()
+
+conso_non_ali32 <- conso_non_ali32|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize2,dep_non_ali,product)|>
+  rename(hhsize=hhsize2)
+
+# Au cours des 7 dernier jrs donc à trimestrialiser.
+
+conso_non_ali72<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p2_conso7nonalimjours_17032015.dta")
+conso_non_ali72<-conso_non_ali72|>
+  select(hhid,zd,menage,region,province,milieu,strate,hhsize2,achat,cadeau,produit,product)|> # Mise en numeric : produit
+  mutate_if(is.labelled, as_factor)
+
+conso_non_ali72 <- conso_non_ali72|>
+  rowwise()|>
+  mutate(dep_non_ali = sum(c(achat, cadeau), na.rm = TRUE))|>
+  ungroup()
+# Trimestrialisation.
+
+conso_non_ali72 <- conso_non_ali72|>
+  rowwise()|>
+  mutate(dep_non_ali_t = sum(c(achat, cadeau)*(365/4)/7, na.rm = TRUE))|>
+  ungroup()
+
+conso_non_ali72 <- conso_non_ali72|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize2,dep_non_ali_t,product)|>
+  rename(hhsize=hhsize2,dep_non_ali=dep_non_ali_t)
+
+# depense de consommation non alimentaire du passage 2.
+
+conso_non_ali2<- bind_rows(conso_non_ali32,conso_non_ali72)
+
+conso_non_ali2 <- conso_non_ali2|>
+  mutate(region = recode(region,"BOUCLE DE MOUHOUN" = "BOUCLE DU MOUHOUN",
+    "HAUTS BASINS" = "HAUTS-BASSINS"))
+
+# ==================== Passage 3
+
+# Au cours des 3 dernier mois donc déja trimestrialisé.
+
+conso_non_ali33<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p3_conso3mois_16032015.dta")
+
+conso_non_ali33<-conso_non_ali33|>
+  select(hhid,zd,menage,region,province,milieu,strate,hhsize3,achat,cadeau,product,produit)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_non_ali33 <- conso_non_ali33|>
+  rowwise()|>
+  mutate(dep_non_ali = sum(c(achat, cadeau), na.rm = TRUE))|>
+  ungroup()
+
+conso_non_ali33 <- conso_non_ali33|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize3,dep_non_ali,produit,product)|>
+  rename(hhsize=hhsize3)
+
+# Au cours des 7 dernier jrs donc à trimestrialiser.
+
+conso_non_ali73<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p3_conso7nonalimjours_16032015.dta")
+
+conso_non_ali73<-conso_non_ali73|>
+  select(hhid,zd,menage,region,province,milieu,strate,hhsize3,achat,cadeau,produit,product)|> # Mise en numeric : produit
+  mutate_if(is.labelled, as_factor)
+
+conso_non_ali73 <- conso_non_ali73|>
+  rowwise()|>
+  mutate(dep_non_ali = sum(c(achat, cadeau), na.rm = TRUE))|>
+  ungroup()
+# Trimestrialisation.
+
+conso_non_ali73 <- conso_non_ali73|>
+  rowwise()|>
+  mutate(dep_non_ali_t = sum(c(achat, cadeau)*(365/4)/7, na.rm = TRUE))|>
+  ungroup()
+
+conso_non_ali73 <- conso_non_ali73|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize3,dep_non_ali_t,produit,product)|>
+  rename(hhsize=hhsize3,dep_non_ali=dep_non_ali_t)
+
+# depense de consommation non alimentaire du passage 3.
+
+conso_non_ali3<- bind_rows(conso_non_ali33,conso_non_ali73)
+
+# ==================== Passage 4
+
+# Au cours des 3 dernier mois donc déja trimestrialisé.
+
+conso_non_ali34<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p4_conso3mois_16032015.dta")
+
+conso_non_ali34<-conso_non_ali34|>
+  select(hhid,zd,menage,region,province,milieu,strate,hhsize4,achat,cadeau,product,produit)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_non_ali34 <- conso_non_ali34|>
+  rowwise()|>
+  mutate(dep_non_ali = sum(c(achat, cadeau), na.rm = TRUE))|>
+  ungroup()
+
+conso_non_ali34 <- conso_non_ali34|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize4,dep_non_ali,produit,product)|>
+  rename(hhsize=hhsize4)
+
+# Au cours des 7 dernier jrs donc à trimestrialiser.
+
+conso_non_ali74<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p4_conso7nonalimjours_16032015.dta")
+
+conso_non_ali74<-conso_non_ali74|>
+  select(hhid,zd,menage,region,province,milieu,strate,hhsize4,achat,cadeau,produit,product)|>
+  mutate_if(is.labelled, as_factor)
+
+conso_non_ali74 <- conso_non_ali74|>
+  rowwise()|>
+  mutate(dep_non_ali = sum(c(achat, cadeau), na.rm = TRUE))|>
+  ungroup()
+# Trimestrialisation.
+
+conso_non_ali74 <- conso_non_ali74|>
+  rowwise()|>
+  mutate(dep_non_ali_t = sum(c(achat, cadeau)*(365/4)/7, na.rm = TRUE))|>
+  ungroup()
+
+conso_non_ali74 <- conso_non_ali74|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize4,dep_non_ali_t,produit,product)|>
+  rename(hhsize=hhsize4,dep_non_ali=dep_non_ali_t)
+
+# depense de consommation non alimentaire du passage 4.
+
+conso_non_ali4<- bind_rows(conso_non_ali34,conso_non_ali74)
+
+# ==================== Annualisation de la consommation non alimentaire.
+
+nouvel_ordre <- c("HAUTS-BASSINS", "BOUCLE DU MOUHOUN", "SAHEL", "EST",
+                  "SUD-OUEST", "CENTRE-NORD", "CENTRE-OUEST", "PLATEAU CENTRAL"
+                  ,"NORD", "CENTRE-EST", "CENTRE", "CASCADES", "CENTRE-SUD")
+
+# Application de levels
+conso_non_ali1$region <- factor(conso_non_ali1$region,levels = nouvel_ordre)
+conso_non_ali2$region <- factor(conso_non_ali2$region,levels = nouvel_ordre)
+
+
+conso_non_ali <- conso_non_ali1|>
+  left_join(conso_non_ali2, by = c("hhid","zd","menage","region","milieu","strate","hhsize","product"))|>
+  left_join(conso_non_ali3, by = c("hhid","zd","menage","region","milieu","strate","hhsize","product"))|>
+  left_join(conso_non_ali4, by = c("hhid","zd","menage","region","milieu","strate","hhsize","product"))
+
+conso_non_ali <- conso_non_ali|>
+  rowwise()|>
+  mutate(dep_non_ali_a = sum(c(dep_non_ali.x,dep_non_ali.y, dep_non_ali.x.x,dep_non_ali.y.y), na.rm = TRUE))|>
+  ungroup()
+
+conso_non_ali <- conso_non_ali|>
+  select(hhid,zd,menage,region,milieu,strate,hhsize,product,dep_non_ali_a)
+
+# Exlure Biens de transport durables (voitures, motos, vélos, etc.) 
+# Appareils électroménagers (réfrigérateur, cuisinière électrique/à gaz, lave-linge, lave-vaisselle, etc.) 
+# Meubles de maison (lits, canapé, table à manger, armoires, etc.) 
+# Investissement (matériaux de construction, main-d’œuvre, grosses réparations de maison, etc.) 
+# Dépenses engagées lors d’occasions spéciales telles que Tabaski, Noël, à l’exception de l’achat de vêtements et chaussures 
+# Autres (frais de pèlerinage, transferts, remboursements de prêt, etc.) 
+# Dépenses d’entreprise ou d’activité génératrice de revenus
+
+
+produits_a_exclure <-c("Autre transport","Taxi (les membres du ménage)","Bus (les membres du ménage)","Pièces détachées et accessoires","Maintenance et réparation des véhicules, vélos, motocycle etc.","Autres couts liés au transport (sans les voyages internationaux)","Voitures automobiles neuves ","Motocycle (motos, scooteurs, …) neuf","Vélo neuf","Voiture automobile de seconde main","Vélo de seconde main","Charrette","Lubrifiants","Essence super","Essence - mélange","Gas-oil ","Réfrigérateurs et congélateurs","Machine à laver et à sécher","Gazinières, cuisinière électrique","Appareils de chauffages, chauffe-eau humidificateurs","Aspirateurs et autre équipement de ménage","Machines à coudre et à tricoter","Fer à repasser","Lave-vaisselle","Savon et autres détergents","Ventilateur","Autres appareils électroménagers (presse-fruits ……..)","Lit et matelas","Armoire et buffet","Chaise","Salle à manger","Salon ordinaire","Natte","Revêtement de sol","Brique en parpaing (pour réparation)","Ciment importé (pour réparation)","Ciment local (pour réparation)","Fer à béton (pour réparation)","Sable (pour réparation)","Peinture (pour réparation)","Funérailles et autres services","Voyage et autres articles personnels (ne figurant pas ailleurs)")
+
+conso_non_ali <- conso_non_ali|>
+  filter(!(product %in% produits_a_exclure))
+
+conso_non_ali$product <- droplevels(conso_non_ali$product)
+```
+
+# Partie 3: Dépense dans l'éducation.
+
+```{r}
+
+# ====================
+
+education<-f_education|>
+  rowwise()|>
+  mutate(dep_educ = sum(c(ET17,ET18,ET19,ET20,ET21,ET22), na.rm = TRUE))|>
+  ungroup()
+
+education<-education|>
+  select(-c("Alphatisation","scol","educ_scol","educ_hi","telpor","internet","ET17","ET18","ET19","ET20","ET21","ET22"))|>
+    filter(!dep_educ %in% c(9999999, 999999)) # Exclure les valeur manquant marquée par 999999 et 9999999
+
+education<-education|>
+  mutate(region = as.factor(toupper(as.character(region))),
+         milieu = as.factor(toupper(as.character(milieu)))) # en majuscule pour une conformité aux autres bases.
+```
+
+# Partie 4: Dépense dans la santé.
+
+```{r}
+
+# ====================
+
+sante<-f_sante|>
+  rowwise()|>
+  mutate(dep_sante = sum(c(S12,S15,S18,S22,S26,S30), na.rm = TRUE))|>
+  ungroup()
+
+sante<-sante|>
+  select(-c("mal30j","con30j","aff30j","arrmal","durarr","moustiq","couvmal","hos12m","S12","S15","S18","S22","S26","S30"))
+```
+
+# Partie 5: Dépense de biens durable.
+
+```{r}
+
+# ====================
+
+conso_biend<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p1_biensdurables_27022015.dta")
+
+conso_biend<-conso_biend|>
+  # select(hhid,zd,menage,region,province,milieu,strate,hhsize4,achat,cadeau,produit,product,hhweight4)|>
+  mutate_if(is.labelled, as_factor)
+
+# On exclut les nénage ne possédant pas de biens durables.
+
+# La valeur d’amortissement est calculée comme suit :
+#  ∂^k-π=1-((val_actuelle)/(val_initial )^(1/age)
+
+taux_interet_legal_2014=4.35/100
+taux_inflation = -0.26/100
+
+conso_biend<-conso_biend|>
+  filter(pm1=="Oui")|>
+  mutate( age = ifelse(pm3 == 0, 1, pm3),
+          val_amortissement = 1-((pm5/pm4)^(1/age)),
+          taux_depreciation = val_amortissement+taux_inflation,
+          median_depreciation=median(taux_depreciation,na.rm = TRUE),
+valeur_usage = pm4 * (taux_interet_legal_2014 - taux_inflation +median_depreciation)) ## L'on met 1 pour que le calcule ne soit pas infini
+
+
+conso_biend<-conso_biend|>
+  select(zd,menage,a1,a2,a3,code_article,valeur_usage)|>
+  rename(Region =a1, Province= a2, Milieu =a3)
+
+conso_biend<-conso_biend|>
+  mutate(Region = as.factor(toupper(as.character(Region))),
+         Milieu = as.factor(toupper(as.character(Milieu))))
+```
+
+# Partie 6: Dépense de logement ( loyer imputé).
+
+```{r}
+
+library(tidyverse)
+library(here)
+
+# ============================
+
+logement<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p1_logement_27022015.dta")
+
+
+# Utilisation des locataire 
+
+logement$valeur_locataire <- ifelse(logement$L15 %in% c(3, 6),logement$L16, NA)
+
+Logement_clean <- tidyr::drop_na(logement, valeur_locataire)
+
+# Régression du log du loyer sur les caractéristiques du logement
+formule <- as.formula(paste("log(valeur_locataire) ~",paste(c("milieu","SSBA",
+           "SSBB", "SSBC", "SSBD", "SSBE","SSBF", "SSBG","SSBH", "SSBI", "SSBJ",
+           "SSBK", "SSBL", "SSBM", "SSBN","L01", "L02", "L03", "L04", "L05","L06",
+           "L07", "L08", "L09", "L10","L11", "L12", "L13", "L14", "L15", "L17",
+           "L18"), collapse = " + ")))
+
+modele_loyer <- lm( formule, data = Logement_clean)
+summary(modele_loyer)
+
+
+modele_final <- step(modele_loyer, direction = "forward")
+summary(modele_final)
+
+
+#Nous allons imputé le loye pour les non-locataires (es propriétaires ou logés gratuitement) a travers la prédiction du logarithme du loyer.
+
+logement$log_imputation <- predict(modele_final, newdata = logement)
+
+# Transformation inverse : on repasse au niveau du loyer
+
+logement$imputation <- round(exp(logement$log_imputation),0 )
+
+logement <- logement %>%
+  mutate(loyer_impute = ifelse(L15 %in% c(3, 6), valeur_locataire, imputation ))
+
+
+#------------Imputation du loyer pour les non-locataires
+
+# Prévoir le loyer pour les propriétaires ou logés gratuitement
+
+# Prédiction du log(loyer)
+logement$log_imputation <- predict(modele_final, newdata = logement)
+
+# Transformation inverse : on repasse au niveau du loyer
+
+logement$imputation <- round(exp(logement$log_imputation),0 )
+
+logement <- logement %>%
+  mutate(loyer_impute = ifelse(L15 %in% c(3, 6), valeur_locataire, imputation ),
+         loyer_impute_annuel=loyer_impute*12)
+
+
+logement<- logement |>
+  mutate_if(is.labelled,as_factor)
+
+logement<-logement|>
+  mutate(region = as.factor(toupper(as.character(region))),
+         milieu = as.factor(toupper(as.character(milieu)))) # en majuscule pour une conformité aux autres bases.
+
+logement<-logement|>
+  select(zd,menage,region,province,milieu,loyer_impute_annuel)
+
+# ======================================
+
+
+# logement<-read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p1_logement_27022015.dta")
+# logement<-logement|>
+#   select(-c("L18","PS1","PS2","SSBA","SSBB","SSBC","SSBD","SSBE","SSBF","SSBG","SSBH","SSBI","SSBJ","SSBK","SSBL","SSBM","SSBN"))|>
+#   mutate_if(is.labelled, as_factor)
+# logement <- droplevels(logement)
+# 
+# logement$L16<-as.numeric(as.character(logement$L16))
+# 
+# logement <- logement|>
+#   mutate(# Identification des locataires
+#     locat = ifelse(L15 == "Locataire", 1, 0),
+#     # Valeur du loyer annuel pour les locataires
+#     loyer_annuel=ifelse(locat == 1, L16 * 12, NA))
+# 
+# # Régression pour imputer le loyer pour les propriétaires et bénéficiaires de logement gratuit
+# # (Simplifié ici - en pratique, on ferait une régression par strate comme dans le code Stata)
+# # logement_loc <- droplevels(subset(logement, locat == 1))
+# # 
+# # logement$province <- factor(logement$province, levels = levels(logement_loc$province))
+# 
+# model <- lm(log(loyer_annuel) ~ region + province + milieu +
+#               L01 + L02 + L03 + L04 + L05 + L06 +
+#               L07 + L08 + L09 + L10 + L11 + L12 + L13 + L14 + L16 + L17,
+#             data = logement, subset = locat == 1)
+# 
+# 
+# # Conserver uniquement les niveaux présents dans le modèle
+# logement <- logement %>%
+#   mutate(
+#     province = factor(province, levels = levels(model$model$province)),
+#     region = factor(region, levels = levels(model$model$region)),
+#     L01= factor(L01, levels = levels(model$model$L01)),
+#     L05= factor(L05, levels = levels(model$model$L05)),
+#     L08= factor(L08, levels = levels(model$model$L08)),
+#     L01= factor(L09, levels = levels(model$model$L09))
+#   )
+# 
+# 
+# logement <- logement %>%
+#   mutate(
+#     loyer_impute = ifelse(locat == 0, exp(predict(model, newdata = .)), NA),
+#     depan = ifelse(locat == 1, loyer_annuel, loyer_impute)
+#   )
+# 
+# 
+# logement <- logement %>%
+#   mutate(
+#     loyer_impute = ifelse(locat == 0, exp(predict(model, newdata = .)), NA),
+#     # On garde le loyer réel pour les locataires, imputé pour les autres
+#     depan = ifelse(locat == 1, loyer_annuel, loyer_impute) )
+# # %>%
+# #   select(zd, menage, depan) %>%
+# #   filter(depan > 0)
+# 
+# 
+# logement<-logement|>
+#   mutate(region = as.factor(toupper(as.character(region))),
+#          milieu = as.factor(toupper(as.character(milieu)))) # en majuscule pour une conformité aux autres bases.
+# 
+# logement<-f_logement|>
+#    mutate(dep_logmnt = as.numeric(as.character(Loyer)) * 12)
+# 
+# logement<-logement|>
+#   select(-c("mur","toit","sol","eauboi","elec_ur","elec_ua","ordure","toilette","eva_eau","eva_toi","Loyer"))
+# 
+# logement<-logement|>
+#   mutate(region = as.factor(toupper(as.character(region))),
+#          milieu = as.factor(toupper(as.character(milieu)))) # en majuscule pour une conformité aux autres bases.
+```
+
+# Panier de consommation alimentaire.
+
+```{r}
+
+# =====================================
+
+# Definir la taille du ménage
+
+taille<-individu|>
+  group_by(hhid)|>
+  mutate(hhsize = n())|>
+  ungroup()
+taille<-taille|>
+  select(hhid,hhsize)
+
+taille <- taille %>%
+  group_by(hhid) %>%
+  summarise(hhsize = first(hhsize))
+
+## Ajout de la taille à la base consommation.
+
+conso_ali<-conso_ali|>
+  left_join(taille, by="hhid")
+
+# =====
+
+panier_ali<-conso_ali|>
+  group_by(product) |>  
+  summarise(
+    consommation_t = sum(dep_ali_a,na.rm = T),
+    total_consommateur = sum(c(hhsize),na.rm = T)) |>
+  ungroup()
+
+# Calcul du montant total de la consommation
+montant_total <- sum(panier_ali$consommation_t)
+
+# Calcul des pourcentages et tri décroissant
+panier_ali <- panier_ali |>
+  mutate(
+    pourcentage = (consommation_t / montant_total) * 100) |>
+  arrange(desc(pourcentage))
+
+panier_ali <- panier_ali |>
+  mutate(cumul = cumsum(pourcentage))
+
+# Sélection du panier alimentaire : produits couvrant 80% de la consommation
+seuil_panier <- 90
+panier_ali <- panier_ali |> 
+  filter(cumul <= seuil_panier)
+
+panier_ali<-droplevels(panier_ali)
+
+# view(panier_ali)
+
+
+# =========================
+
+# Transformation en unité standard
+
+unite_stand<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/ehcvm_nsu_bfa2021.dta")
+
+correspond_filtre <- unite_stand|>
+  mutate(priorité = case_when(
+      uniteID == 108 & tailleID == 3 ~ 1,tailleID == 0 ~ 2,tailleID == 2 ~ 3,
+      tailleID == 1 ~ 4,tailleID == 3 ~ 5,TRUE ~ 6 ))|>
+  group_by(codpr, uniteID)|>
+  slice_min(priorité, with_ties = FALSE)|>
+  ungroup()
+
+correspond_filtre<- correspond_filtre |>
+  mutate_if(is.labelled,as_factor)
+
+correspond_filtre$codpr_lib <- as_factor(correspond_filtre$codpr)
+correspond_filtre$uniteID_lib <- as_factor(correspond_filtre$uniteID)
+correspond_filtre$tailleID_lib <- as_factor(correspond_filtre$tailleID)
+
+# Convertir en UTF-8
+correspond_filtre$tailleID_lib <- iconv(correspond_filtre$tailleID_lib, from = "", to = "UTF-8")
+
+library(openxlsx)
+library(readxl)
+
+correpondnace_unite <- read_xlsx("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/correpondnace_unite.xlsx",sheet = "Feuil1")
+correspondance <- read_xlsx("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/correspondance.xlsx",sheet = "Feuil1")
+
+# ===========
+
+donnees <- correspond_filtre|>
+  mutate(codpr_lib = str_to_lower(str_trim(codpr_lib)))|>
+  left_join(
+    correspondance|>
+      mutate(Produit_origine = str_to_lower(str_trim(Produit_origine))),
+    by = c("codpr_lib" = "Produit_origine"))
+
+donnees1 <- donnees|>
+  mutate(uniteID_lib = str_to_lower(str_trim(uniteID_lib)))|>
+  left_join(
+    correpondnace_unite|>
+      mutate(unite_a_corres = str_to_lower(str_trim(unite_a_corres))),
+    by = c("uniteID_lib" = "unite_a_corres"))
+
+##
+
+BaseT <- donnees1|>
+  group_by(Produit_cible, unite_corres)|>
+  summarise(moyenne_poids = mean(poids_moyen, na.rm = TRUE),.groups = "drop")|>
+  arrange(Produit_cible, unite_corres)
+
+# ====================================
+
+```
+
+# Création du fichier prix.
+
+```{r}
+
+
+# ===========================
+
+f_prix1<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p1_prix_27022015.dta")
+
+f_prix1<- f_prix1|>
+  # select(-c(ctrl,produit,typ_produit,desc_pdt,strate))|>
+  mutate_if(is.labelled, as_factor)
+
+## Garder les produits du panier.
+
+
+f_prix1 <- f_prix1 %>%
+  filter(pdt %in% c(
+    "Riz", "Maïs", "Sorgho", "Petit mil", "Pain",
+    "Viandes de bœufs fraîches", "Viandes de moutons/ de chèvres  fraîch",
+    "Volailles Fraiches ou sur pied", "Poissons secs", "Poissons frais", "Lait",
+    "Huiles", "Pâte d'arachide", "Gombo", "Oignons (gousse, feuille)",
+    "Tomates fraiches", "Feuilles (oseilles, baobab, boulvaka…", "Haricot",
+    "Sucre en poudre", "Soumbala", "Thé", "Bière traditionnelle (dolo)",
+    "Cigarette", "Noix de cola"))
+
+f_prix1<-droplevels(f_prix1)
+
+library(forcats)
+
+## Recodage en gramme.
+
+f_prix1$unite <- fct_recode(f_prix1$unite,
+  g = "Gramme", kg = "Kilogramme",l = "Litre", ml = "Millilitre")
+
+# f_prix1<-f_prix1|>
+#    mutate(unite = if_else(unite  =="ml", "g", unite)) # L'on suppose 1 litre est égal à 1 kg. 
+
+# f_prix1<-f_prix1|>
+#   mutate(across(c(qte1, qte2, qte3), ~ if_else(UNITC %in% c("kg", "litre","unite"), . * 1000, .))) %>%
+#   mutate(UNITC = if_else(UNITC  %in% c("kg", "litre","unite"), "g", UNITC))
+
+# Pour les variété hétérogène nous allons calculer les valeurs unitaire tout en utilisant les quantités observées. Si une quantité observée en manquante on l'imput par la quantité de reference car l'on considère que si la quantité conrespon à la reference l'on ne reporte pas.
+
+hetero <- f_prix1|>
+  filter(source=="Hétérogène")|>
+   mutate(Quantité = if_else(!is.na(qtobs), qtobs, qref))
+
+
+hetero <- hetero|>
+  mutate(
+    Quantité = if_else(unite %in% c("kg", "l"), Quantité * 1000, Quantité),
+    unite = if_else(unite %in% c("kg", "l"), "g", unite))
+
+
+hetero <- hetero|>
+  rowwise()|>
+  mutate(Prix_moyen = mean(c(pri1, pri2, pri3), na.rm = TRUE))|>
+  ungroup()
+
+# Calcul de valeurs unitaire.
+
+hetero <- hetero|>
+  mutate(valeur_unitaire = Prix_moyen/Quantité)
+
+hetero <- hetero|>
+  select(idseq,region,province,milieu,commune,produit,pdt,valeur_unitaire,unite,source)
+
+
+# Pour les variété homoogène O1
+homo1 <- f_prix1|>
+  filter(source=="Homogène 1")
+
+homo1$unite<-as.factor(as.character(homo1$unite))
+
+homo1 <- homo1|>
+  mutate(
+    qtreq = if_else(unite %in% c("kg"), qtreq * 1000, qtreq),
+    unite = if_else(unite %in% c("kg"), "g", unite))
+
+homo1 <- homo1|>
+  rowwise()|>
+  mutate(Prix_moyen = mean(c(pri1, pri2, pri3), na.rm = TRUE))|>
+  ungroup()
+
+homo1 <- homo1|>
+  mutate(valeur_unitaire = Prix_moyen/qtreq)
+
+homo1 <- homo1|>
+  select(idseq,region,province,milieu,commune,produit,pdt,valeur_unitaire,unite,source)
+
+
+
+# Pour les variété homoogène O2 et O3
+
+homo0203 <- f_prix1|>
+  filter(source=="Homogène 2 et 3")
+
+homo0203$unite<-as.factor(as.character(homo0203$unite))
+
+homo0203 <- homo0203|>
+  mutate(
+    poids1 = if_else(unite == "kg" & is.na(poids1) & is.na(poids2) & is.na(poids3), 1, poids1),
+    poids2 = if_else(unite == "kg" & poids1==1 & is.na(poids2) & is.na(poids3), 1, poids2),
+    poids3 = if_else(unite == "kg" & poids1==1 & poids2==1 & is.na(poids3), 1, poids3)
+  )
+
+homo0203<-homo0203|>
+  mutate(across(c(poids1, poids2, poids3), ~ if_else(unite %in% c("kg"), . * 1000, .)))|>
+  mutate(unite = if_else(unite  %in% c("kg"), "g", unite))
+
+
+
+homo0203 <-homo0203|>
+  rowwise()|>
+  mutate(Prix_unitaire1 = pri1/poids1,
+         Prix_unitaire2 = pri2/poids2,
+         Prix_unitaire3 = pri3/poids3)|>
+  ungroup()
+
+homo0203 <-homo0203|>
+  rowwise()|>
+  mutate(valeur_unitaire = mean(c(Prix_unitaire1, Prix_unitaire2, Prix_unitaire3), na.rm = TRUE))|>
+  ungroup()
+
+homo0203 <- homo0203|>
+  select(idseq,region,province,milieu,commune,produit,pdt,valeur_unitaire,unite,source)
+
+
+f_prix1<-bind_rows(hetero,homo1,homo0203)
+
+f_prix1 <- f_prix1|>
+  group_by(pdt)|>
+  summarise(valeur_unitaire = mean(valeur_unitaire, na.rm = TRUE))|>
+  ungroup()
+
+f_prix1 <- f_prix1|>
+  rename(libl_pdt=pdt)
+
+# ==============
+# Mise en place des produit dans le panier. si riz local == Riz
+
+
+
+# =========================== Passage 2
+
+f_prix2<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p2_prix_27022015.dta")
+
+f_prix2<- f_prix2|>
+  # select(-c(ctrl,produit,typ_produit,desc_pdt,strate))|>
+  mutate_if(is.labelled, as_factor)
+
+f_prix2$libl_pdt<-as.factor(as.character(f_prix2$libl_pdt))
+
+library(forcats)
+
+f_prix2 <- f_prix2|>
+  mutate(libl_pdt = case_when(
+    grepl("Riz", libl_pdt, ignore.case = TRUE) ~ "Riz",
+    grepl("Huile", libl_pdt, ignore.case = TRUE) ~ "Huile",
+    grepl("Sorgho", libl_pdt, ignore.case = TRUE) ~ "Sorgho",
+    grepl("Maïs", libl_pdt, ignore.case = TRUE) ~ "Maïs",
+    grepl("lait", libl_pdt, ignore.case = TRUE) ~ "Lait",
+    grepl("Thé", libl_pdt, ignore.case = TRUE) ~ "Thé",
+    grepl("Mil", libl_pdt, ignore.case = TRUE) ~ "Petit mil",
+    grepl("Soumbala", libl_pdt, ignore.case = TRUE) ~ "Soumbala",
+    TRUE ~ libl_pdt  # ne pas modifier les autres
+  ))
+
+
+f_prix2 <- f_prix2|>
+  filter(libl_pdt %in% c(
+    "Riz", "Maïs", "Sorgho", "Petit mil", "Pain",
+    "Viandes de bœufs fraîches", "Viandes de moutons/ de chèvres  fraîch",
+    "Volailles Fraiches ou sur pied", "Poissons secs", "Poissons frais", "Lait",
+    "Huiles", "Pâte d'arachide", "Gombo", "Oignons (gousse, feuille)",
+    "Tomates fraiches", "Feuilles (oseilles, baobab, boulvaka…", "Haricot",
+    "Sucre en poudre", "Soumbala", "Thé", "Bière traditionnelle (dolo)",
+    "Cigarette", "Noix de cola"))
+
+f_prix2 <- f_prix2|>
+  mutate(
+    qte1 = if_else(UNITC == "kg" & is.na(qte1) & is.na(qte2) & is.na(qte3), 1, qte1),
+    qte2 = if_else(UNITC == "kg" & qte1==1 & is.na(qte2) & is.na(qte3), 1, qte2),
+    qte3 = if_else(UNITC == "kg" & qte1==1 & qte2==1 & is.na(qte3), 1, qte3))
+
+f_prix2<-f_prix2|>
+   mutate(UNITC = if_else(UNITC  =="ml", "g", UNITC))
+
+f_prix2<-f_prix2|>
+  mutate(across(c(qte1, qte2, qte3), ~ if_else(UNITC %in% c("kg", "litre","unite"), . * 1000, .))) %>%
+  mutate(UNITC = if_else(UNITC  %in% c("kg", "litre","unite"), "g", UNITC))
+
+# Calcul des prix.
+
+f_prix2 <-f_prix2|>
+  rowwise()|>
+  mutate(Prix_unitaire1 = prix1/qte1,
+         Prix_unitaire2 = prix2/qte2,
+         Prix_unitaire3 = prix3/qte3)|>
+  ungroup()
+
+f_prix2 <-f_prix2|>
+  rowwise()|>
+  mutate(valeur_unitaire = mean(c(Prix_unitaire1, Prix_unitaire2, Prix_unitaire3), na.rm = TRUE))|>
+  ungroup()
+
+# f_prix2 <-f_prix2|>
+#   select(libl_pdt,valeur_unitaire,UNITC)
+
+f_prix2 <- f_prix2|>
+  group_by(libl_pdt)|>
+  summarise(valeur_unitaire = mean(valeur_unitaire, na.rm = TRUE))|>
+  ungroup()
+
+
+# ===========================
+
+f_prix3<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p3_prix_27022015.dta")
+
+f_prix3<- f_prix3|>
+  # select(-c(ctrl,produit,typ_produit,desc_pdt,strate))|>
+  mutate_if(is.labelled, as_factor)
+
+f_prix3$libl_pdt<-as.factor(as.character(f_prix3$libl_pdt))
+
+f_prix3 <- f_prix3|>
+  mutate(libl_pdt = case_when(
+    grepl("Riz", libl_pdt, ignore.case = TRUE) ~ "Riz",
+    grepl("Huile", libl_pdt, ignore.case = TRUE) ~ "Huile",
+    grepl("Sorgho", libl_pdt, ignore.case = TRUE) ~ "Sorgho",
+    grepl("Maïs", libl_pdt, ignore.case = TRUE) ~ "Maïs",
+    grepl("lait", libl_pdt, ignore.case = TRUE) ~ "Lait",
+    grepl("Thé", libl_pdt, ignore.case = TRUE) ~ "Thé",
+    grepl("Mil", libl_pdt, ignore.case = TRUE) ~ "Petit mil",
+    grepl("Soumbala", libl_pdt, ignore.case = TRUE) ~ "Soumbala",
+    TRUE ~ libl_pdt  # modifier les autres
+  ))
+
+f_prix3 <- f_prix3|>
+  filter(libl_pdt %in% c(
+    "Riz", "Maïs", "Sorgho", "Petit mil", "Pain",
+    "Viandes de bœufs fraîches", "Viandes de moutons/ de chèvres  fraîch",
+    "Volailles Fraiches ou sur pied", "Poissons secs", "Poissons frais", "Lait",
+    "Huiles", "Pâte d'arachide", "Gombo", "Oignons (gousse, feuille)",
+    "Tomates fraiches", "Feuilles (oseilles, baobab, boulvaka…", "Haricot",
+    "Sucre en poudre", "Soumbala", "Thé", "Bière traditionnelle (dolo)",
+    "Cigarette", "Noix de cola"))
+
+f_prix3 <- f_prix3 |>
+  mutate(
+    qte1 = if_else(UNITC == "kg" & is.na(qte1) & is.na(qte2) & is.na(qte3), 1, qte1),
+    qte2 = if_else(UNITC == "kg" & qte1==1 & is.na(qte2) & is.na(qte3), 1, qte2),
+    qte3 = if_else(UNITC == "kg" & qte1==1 & qte2==1 & is.na(qte3), 1, qte3)
+  )
+
+f_prix3<-f_prix3|>
+   mutate(UNITC = if_else(UNITC  =="ml", "g", UNITC))
+
+f_prix3<-f_prix3|>
+  mutate(across(c(qte1, qte2, qte3), ~ if_else(UNITC %in% c("kg", "litre","unite"), . * 1000, .)))|>
+  mutate(UNITC = if_else(UNITC  %in% c("kg", "litre","unite"), "g", UNITC))
+
+
+# Calcul des prix.
+
+f_prix3 <-f_prix3|>
+  rowwise()|>
+  mutate(Prix_unitaire1 = prix1/qte1,
+         Prix_unitaire2 = prix2/qte2,
+         Prix_unitaire3 = prix3/qte3)|>
+  ungroup()
+
+f_prix3 <-f_prix3|>
+  rowwise()|>
+  mutate(valeur_unitaire = mean(c(Prix_unitaire1, Prix_unitaire2, Prix_unitaire3), na.rm = TRUE))|>
+  ungroup()
+
+f_prix3 <- f_prix3|>
+  group_by(libl_pdt)|>
+  summarise(valeur_unitaire = mean(valeur_unitaire, na.rm = TRUE))|>
+  ungroup()
+
+# ===========================
+
+f_prix4<- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/emc2014_p4_prix_27022015.dta")
+
+f_prix4<- f_prix4|>
+  # select(-c(ctrl,produit,typ_produit,desc_pdt,strate))|>
+  mutate_if(is.labelled, as_factor)
+
+f_prix4$libl_pdt<-as.factor(as.character(f_prix4$libl_pdt))
+
+f_prix4 <- f_prix4|>
+  mutate(libl_pdt = case_when(
+    grepl("Riz", libl_pdt, ignore.case = TRUE) ~ "Riz",
+    grepl("Huile", libl_pdt, ignore.case = TRUE) ~ "Huile",
+    grepl("Sorgho", libl_pdt, ignore.case = TRUE) ~ "Sorgho",
+    grepl("Maïs", libl_pdt, ignore.case = TRUE) ~ "Maïs",
+    grepl("lait", libl_pdt, ignore.case = TRUE) ~ "Lait",
+    grepl("Thé", libl_pdt, ignore.case = TRUE) ~ "Thé",
+    grepl("Mil", libl_pdt, ignore.case = TRUE) ~ "Petit mil",
+    grepl("Soumbala", libl_pdt, ignore.case = TRUE) ~ "Soumbala",
+    TRUE ~ libl_pdt  # modifier les autres
+  ))
+
+f_prix4 <- f_prix4|>
+  filter(libl_pdt %in% c(
+    "Riz", "Maïs", "Sorgho", "Petit mil", "Pain",
+    "Viandes de bœufs fraîches", "Viandes de moutons/ de chèvres  fraîch",
+    "Volailles Fraiches ou sur pied", "Poissons secs", "Poissons frais", "Lait",
+    "Huiles", "Pâte d'arachide", "Gombo", "Oignons (gousse, feuille)",
+    "Tomates fraiches", "Feuilles (oseilles, baobab, boulvaka…", "Haricot",
+    "Sucre en poudre", "Soumbala", "Thé", "Bière traditionnelle (dolo)",
+    "Cigarette", "Noix de cola"))
+
+f_prix4$unite <-as.factor(as.character(f_prix4$unite)) 
+
+f_prix4 <- f_prix4 |>
+  mutate(
+    qte1 = if_else(unite == "kg" & is.na(qte1) & is.na(qte2) & is.na(qte3), 1, qte1),
+    qte2 = if_else(unite == "kg" & qte1==1 & is.na(qte2) & is.na(qte3), 1, qte2),
+    qte3 = if_else(unite == "kg" & qte1==1 & qte2==1 & is.na(qte3), 1, qte3)
+  )
+
+
+f_prix4<-f_prix4|>
+  mutate(across(c(qte1, qte2, qte3), ~ if_else(unite %in% c("kg", "litre","gramme"), . * 1000, .)))|>
+  mutate(unite = if_else(unite  %in% c("kg", "litre","gramme"), "g", unite))
+
+
+
+# Calcul du prix
+
+f_prix4 <-f_prix4|>
+  rowwise()|>
+  mutate(Prix_unitaire1 = prix1/qte1,
+         Prix_unitaire2 = prix2/qte2,
+         Prix_unitaire3 = prix3/qte3)|>
+  ungroup()
+
+f_prix4 <-f_prix4|>
+  rowwise()|>
+  mutate(valeur_unitaire = mean(c(Prix_unitaire1, Prix_unitaire2, Prix_unitaire3), na.rm = TRUE))|>
+  ungroup()
+
+f_prix4 <- f_prix4|>
+  group_by(libl_pdt)|>
+  summarise(valeur_unitaire = mean(valeur_unitaire, na.rm = TRUE))|>
+  ungroup()
+
+# ===========================
+
+prix_uni<-bind_rows(f_prix1,f_prix2,f_prix3,f_prix4)
+
+prix_uni <- prix_uni|>
+  group_by(libl_pdt)|>
+  summarise(valeur_unitaire = mean(valeur_unitaire, na.rm = TRUE))|>
+  ungroup()
+prix_uni <- prix_uni|>
+  rename(product =libl_pdt)
+
+# ==============================
+
+panier_ali <- panier_ali|>
+  left_join(prix_uni, by= "product") # La valeur unitaire = Na car il ne se trouvent pas dans la base prix
+
+# =========================== Consommation alimentaire des produit du panier.
+
+BaseT$Produit_cible<-as.factor(as.character(BaseT$Produit_cible))
+
+produit_panier_stand<-BaseT|>
+  filter(Produit_cible %in% c(
+    "Riz", "Maïs", "Sorgho", "Petit mil", "Pain",
+    "Viandes de bœufs fraîches", "Viandes de moutons/ de chèvres  fraîch",
+    "Volailles Fraiches ou sur pied", "Poissons secs", "Poissons frais", "Lait",
+    "Huiles", "Pâte d'arachide", "Gombo", "Oignons (gousse, feuille)",
+    "Tomates fraiches", "Feuilles (oseilles, baobab, boulvaka…", "Haricot",
+    "Sucre en poudre", "Soumbala", "Thé", "Bière traditionnelle (dolo)",
+    "Cigarette", "Noix de cola"))
+  
+produit_panier_stand<-droplevels(produit_panier_stand) ### =====
+
+
+conso_ali_panier<-conso_ali|>
+  filter(product %in% c(
+    "Riz", "Maïs", "Sorgho", "Petit mil", "Pain",
+    "Viandes de bœufs fraîches", "Viandes de moutons/ de chèvres  fraîch",
+    "Volailles Fraiches ou sur pied", "Poissons secs", "Poissons frais", "Lait",
+    "Huiles", "Pâte d'arachide", "Gombo", "Oignons (gousse, feuille)",
+    "Tomates fraiches", "Feuilles (oseilles, baobab, boulvaka…", "Haricot",
+    "Sucre en poudre", "Soumbala", "Thé", "Bière traditionnelle (dolo)",
+    "Cigarette", "Noix de cola"))
+
+conso_ali_panier<-droplevels(conso_ali_panier)
+
+conso7jours_p1_panier_a<-conso_ali_panier|>
+  left_join(produit_panier_stand, by = c("product" = "Produit_cible", "uachat" = "unite_corres"))
+
+conso7jours_p1_panier_a<-conso7jours_p1_panier_a|>
+  rename(poids_M_a= moyenne_poids)
+
+conso7jours_p1_panier_a<-conso7jours_p1_panier_a|>
+  left_join(produit_panier_stand, by = c("product" = "Produit_cible", "uautocons" = "unite_corres"))
+
+conso7jours_p1_panier_a<-conso7jours_p1_panier_a|>
+  rename(poids_M_auto= moyenne_poids)
+
+conso7jours_p1_panier_a<-conso7jours_p1_panier_a|>
+  left_join(produit_panier_stand, by = c("product" = "Produit_cible", "ucadeau" = "unite_corres"))
+
+conso7jours_p1_panier_a<-conso7jours_p1_panier_a|>
+  rename(poids_M_cadeau= moyenne_poids)
+
+conso7jours_p1_panier_a<-conso7jours_p1_panier_a|>
+  mutate(quanti_a = poids_M_a*qachat,
+         quanti_auto = poids_M_auto*qautocons,
+         quanti_cadeau =poids_M_cadeau*qcadeau)
+
+conso7jours_p1_panier_a<-conso7jours_p1_panier_a|>
+  rowwise()|>
+  mutate(quanti_total = sum(c(quanti_a,quanti_auto,quanti_cadeau), na.rm = T))|>
+  ungroup()
+
+
+# =============================
+
+#Journalisons les quantités totales consommées.
+conso7jours_p1_panier_a$quanti_total = conso7jours_p1_panier_a$quanti_total/7
+
+quantite <- conso7jours_p1_panier_a |>
+  group_by(product) |>  
+  summarise(
+    quantite = sum(quanti_total)
+  ) |>
+  ungroup()
+
+## Affectons à chaque produit du panier la quantité consommée au cours des sept derniers jours par les membres des différents ménages
+
+panier_ali = right_join(panier_ali,quantite,by="product")
+
+#Détermination de la quantité consommée par individus par jour
+panier_ali$qtt_jour = panier_ali$quantite/(panier_ali$total_consommateur*7)
+
+# Convertissons les quantité en kilogrammes
+panier_ali$qtt_jour =  panier_ali$qtt_jour/1000
+
+panier_ali <- panier_ali |>
+  mutate(prix_total = rowMeans(across(c(valeur_unitaire)),na.rm=TRUE))
+
+
+# ================
+
+base_calorie <- read_dta("G:/Mon Drive/LICENCE III/SEMESTRE 5/ODD et conditions de vie des ménages/emc2014_TP/burkina_orana.dta")
+#View(base_calorie)
+
+# Renomage des modalités
+base_calorie$libelle <- fct_recode(base_calorie$libelle,
+  'Pattes alimentaires' = "Pâtes alimentaires", 'Bière traditionnelle (dolo)'="Boisson non alcoolisées industr" ,'Viandes de moutons/ de chèvres  fraîch' = "Viandes de moutons/ de chèvres  fraîches")
+
+
+base_calorie = base_calorie|>
+  filter(libelle %in% c("Riz","Maïs","Sorgho","Petit mil","Huiles","Haricot","Feuilles (oseilles, baobab, boulvaka…","Poissons secs","Sucre en poudre","Lait","Bière traditionnelle (dolo)","Gombo","Viandes de moutons/ de chèvres  fraîch", "Cube (Maggi, Jumbo,…)","Soumbala","Pain","Oignons (gousse, feuille)","Volailles Fraiches ou sur pied","Thé","Cigarette","Poissons frais","Viandes de bœufs fraîches","Pâte d'arachide","Pattes alimentaires","Tomates fraiches","Noix de cola"))
+
+base_calorie = base_calorie|>
+  rename(product=libelle)
+panier_ali = left_join(panier_ali,base_calorie[,c(2,3)],by="product")
+
+# La quantité d'énergie associée à la cigarette estnulle
+
+panier_ali <- panier_ali |>
+  mutate(pq = prix_total*qtt_jour,
+         qc = qtt_jour*orana)
+
+pq = sum(panier_ali$pq,na.rm = T)
+qc = sum(panier_ali$qc,na.rm = T)
+
+# ================================Seuil de pauvreté alimentaire annuel
+
+ZA = 10*2400*(pq/qc)*365
+```
+
+# Non alimentaire et profile de pauvreté.
+
+```{r}
+menage <- data_individu %>%
+  group_by(zd, menage) %>%
+  summarise(
+    milieu = first(milieu),
+    region = first(region),
+    province = first(province),
+    hhsize = n())
+```
+
+```{r}
+
+
+c_alim7 = conso_ali %>%
+  group_by(zd, menage) %>%
+  summarise(dep_ali_a = sum(dep_ali_a)) #select(zd, menage,product, prodini,dep_alimp1)
+
+
+
+c_nonalim1 = conso_non_ali %>%
+  group_by(zd, menage) %>%
+  summarise(dep_non_ali_a = sum(dep_non_ali_a))
+
+
+
+educ = education %>%
+  group_by(zd, menage) %>%
+  summarise(dep_educ = sum(dep_educ))
+
+
+
+c_sante = sante %>%
+  group_by(zd, menage) %>%
+  summarise(dep_sante = sum(dep_sante))
+
+
+c_biendur = conso_biend %>%
+  group_by(zd, menage) %>%
+  summarise(dep_biendur = sum(valeur_usage))
+
+
+c_logement = logement %>%
+  group_by(zd, menage) %>%
+  summarise(loyer_impute_annuel = sum(loyer_impute_annuel))
+
+
+# Fusionner toutes les bases entre elles
+base_menage_finale <- menage %>%
+  left_join(c_alim7,        by = c("zd", "menage")) %>%
+  left_join(c_nonalim1,     by = c("zd", "menage")) %>%
+  left_join(educ,           by = c("zd", "menage")) %>%
+  left_join(c_sante,        by = c("zd", "menage")) %>%
+  left_join(c_biendur,      by = c("zd", "menage")) %>%
+  left_join(c_logement,     by = c("zd", "menage"))
+
+# # Remplacer les NA par 0 pour les dépenses (optionnel, mais conseillé)
+# base_menage_finale <- base_menage_finale %>%
+#   mutate(across(
+#     starts_with("dep_") | starts_with("loyer"),
+#     ~ coalesce(., 0)
+#   ))
+
+# Calcul d'une dépense totale annuelle (optionnel)
+base_menage_finale <- base_menage_finale %>%
+  mutate(depense_totale = (dep_ali_a + dep_non_ali_a + dep_educ + dep_sante + dep_biendur + loyer_impute_annuel),
+         depense_non_alim = (dep_non_ali_a + dep_educ + dep_sante + dep_biendur + loyer_impute_annuel))
+#view(base_menage_finale)
+
+
+# =========================
+
+base_menage_finale <- base_menage_finale %>%
+  mutate(
+    dep_ali_pc = dep_ali_a / hhsize,
+    dep_non_ali_pc = dep_non_ali_a / hhsize,
+    dep_tot_pc = depense_totale / hhsize
+  )
+
+
+base_individu <- individu %>%
+  left_join(
+    base_menage_finale %>%
+      select(zd, menage, dep_ali_pc, dep_non_ali_pc, dep_tot_pc),
+    by = c("zd", "menage")
+  )
+
+#view(base_individu)
+
+# ±20% du seuil alimentaire
+min_seuil <- ZA * 0.8
+max_seuil <- ZA * 1.2
+
+# Ménages dont la dépense totale par tête est dans cet intervalle (seuil min)
+menages_min <- base_menage_finale %>%
+  filter(dep_tot_pc >= min_seuil & dep_tot_pc <= max_seuil)
+
+# Ménages dont la dépense alimentaire par tête est dans cet intervalle (seuil max)
+menages_max <- base_menage_finale %>%
+  filter(dep_ali_pc >= min_seuil & dep_ali_pc <= max_seuil)
+
+ZAN_min <- mean(menages_min$dep_non_ali_pc, na.rm = TRUE)
+ZAN_max <- mean(menages_max$dep_non_ali_pc, na.rm = TRUE)
+
+# Moyenne des deux
+ZAN <- mean(c(ZAN_min, ZAN_max))
+
+ZAN # Seuil de pauvreté non alimentaire
+
+seuil_pauvrete <- ZA + ZAN
+
+base_individu <- base_individu %>%
+  mutate(pauvre = ifelse(dep_tot_pc < seuil_pauvrete, 1, 0))
+
+table(base_individu$pauvre) # 1 = pauvre; 0 = non pauvre
+
+library(ggplot2)
+library(dplyr)
+
+# Calcule la proportion nationale de pauvreté
+pauvre_nat <- base_individu %>%
+  summarise(
+    nb_pauvres = sum(pauvre == 1, na.rm = TRUE),
+    population = n(),
+    taux_pauvrete = nb_pauvres / population * 100
+  )
+
+# Graphique : barre unique pour le taux de pauvreté national
+ggplot(pauvre_nat, aes(x = "National", y = taux_pauvrete)) +
+  geom_bar(stat = "identity", fill = "tomato") +
+  geom_text(aes(label = paste0(round(taux_pauvrete, 1), "%")), 
+            vjust = -0.5, size = 5) +
+  labs(title = "Taux de pauvreté au niveau national",
+       x = "", y = "Taux de pauvreté (%)") +
+  theme_minimal()
+
+# Graphique du pourcentage de pauvre.
+```
