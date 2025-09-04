@@ -1,6 +1,6 @@
 ---
 title: "Projet de ODD (définir le profil de pauvreté)"
-author: "Boniface SAWADOGO"
+author: "SANKARA Saïdou"
 format: docx
 editor: visual
 ---
